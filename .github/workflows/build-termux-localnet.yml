@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  APP_ID: com.termx
+  APP_ID: com.termxx
   APP_TAG: termux-app-googleplay.2026.06.21
   BOOTSTRAP_TAG: bootstrap-2026.06.21-r2
   PROOT_TAG: proot-2026.06.21-r1
@@ -55,7 +55,7 @@ jobs:
           import hashlib
 
           old = b"com.termux"
-          new = b"com.termx"
+          new = b"com.termxx"
           assert len(old) == len(new)
 
           src = Path("/tmp/bootstrap-aarch64-original.zip")
@@ -72,7 +72,7 @@ jobs:
                       replaced += count
 
                   if "com.termux" in info.filename:
-                      info.filename = info.filename.replace("com.termux", "com.termx")
+                      info.filename = info.filename.replace("com.termux", "com.termxx")
 
                   zout.writestr(info, data)
 
@@ -125,7 +125,7 @@ jobs:
           import os
           import re
 
-          APP_ID = "com.termx"
+          APP_ID = "com.termxx"
           BOOTSTRAP_SHA = os.environ["BOOTSTRAP_SHA"]
           PROOT_SHA = os.environ["PROOT_SHA"]
 
@@ -143,10 +143,10 @@ jobs:
           # Gradle: keep Java namespace com.termux, but use a different Android application id.
           text = gradle.read_text()
           marker = "    defaultConfig {"
-          if 'applicationId = "com.termx"' not in text:
+          if 'applicationId = "com.termxx"' not in text:
               if marker not in text:
                   raise SystemExit("defaultConfig marker not found")
-              text = text.replace(marker, marker + '\n        applicationId = "com.termx"', 1)
+              text = text.replace(marker, marker + '\n        applicationId = "com.termxx"', 1)
 
           text = text.replace(
               'versionName = "googleplay.2026.06.21"',
@@ -208,19 +208,19 @@ jobs:
               raise SystemExit("TermuxConstants PACKAGE_NAME marker not found")
           constants.write_text(text.replace(
               old,
-              'public static final String PACKAGE_NAME = "com.termx";',
+              'public static final String PACKAGE_NAME = "com.termxx";',
               1,
           ))
 
           # Globally unique manifest names so official Termux can stay installed.
           text = manifest.read_text()
           replacements = {
-              "com.termux.permission.TERMUX_INTERNAL": "com.termx.permission.TERMUX_INTERNAL",
-              "com.termux.sharedfile.READ_WRITE": "com.termx.sharedfile.READ_WRITE",
-              'android:authorities="com.termux.documents"': 'android:authorities="com.termx.documents"',
-              'android:authorities="com.termux.files"': 'android:authorities="com.termx.files"',
-              'android:authorities="com.termux.sharedfile"': 'android:authorities="com.termx.sharedfile"',
-              'android:taskAffinity="com.termux.filereceiver"': 'android:taskAffinity="com.termx.filereceiver"',
+              "com.termux.permission.TERMUX_INTERNAL": "com.termxx.permission.TERMUX_INTERNAL",
+              "com.termux.sharedfile.READ_WRITE": "com.termxx.sharedfile.READ_WRITE",
+              'android:authorities="com.termux.documents"': 'android:authorities="com.termxx.documents"',
+              'android:authorities="com.termux.files"': 'android:authorities="com.termxx.files"',
+              'android:authorities="com.termux.sharedfile"': 'android:authorities="com.termxx.sharedfile"',
+              'android:taskAffinity="com.termux.filereceiver"': 'android:taskAffinity="com.termxx.filereceiver"',
           }
           for old, new in replacements.items():
               if old not in text:
@@ -285,7 +285,7 @@ jobs:
           if '"com.termux.files"' not in text:
               raise SystemExit("content provider authority marker not found")
           content_provider.write_text(text.replace(
-              '"com.termux.files"', '"com.termx.files"', 1
+              '"com.termux.files"', '"com.termxx.files"', 1
           ))
 
           text = share_api.read_text()
@@ -293,21 +293,21 @@ jobs:
               raise SystemExit("share provider authority marker not found")
           share_api.write_text(text.replace(
               '.authority("com.termux.sharedfile")',
-              '.authority("com.termx.sharedfile")',
+              '.authority("com.termxx.sharedfile")',
               1,
           ))
 
           text = usb_api.read_text()
           text = text.replace(
               '"com.termux.api.USB_PERMISSION"',
-              '"com.termx.api.USB_PERMISSION"',
+              '"com.termxx.api.USB_PERMISSION"',
           )
           usb_api.write_text(text)
 
           text = shortcuts.read_text()
           text = text.replace(
               'android:targetPackage="com.termux"',
-              'android:targetPackage="com.termx"',
+              'android:targetPackage="com.termxx"',
           )
           shortcuts.write_text(text)
 
@@ -334,7 +334,7 @@ jobs:
 
           git diff --check
           git diff --stat
-          grep -R 'com.termx'             termux-app/src/main/AndroidManifest.xml             termux-app/src/main/java/com/termux/app/TermuxConstants.java             termux-app/src/main/java/com/termux/app/TermuxContentProvider.java             termux-app/src/main/java/com/termux/app/api/ShareAPI.java             termux-app/src/main/res/xml/shortcuts.xml             termux-app/build.gradle.kts
+          grep -R 'com.termxx'             termux-app/src/main/AndroidManifest.xml             termux-app/src/main/java/com/termux/app/TermuxConstants.java             termux-app/src/main/java/com/termux/app/TermuxContentProvider.java             termux-app/src/main/java/com/termux/app/api/ShareAPI.java             termux-app/src/main/res/xml/shortcuts.xml             termux-app/build.gradle.kts
 
       - name: Build release APK
         working-directory: source
@@ -355,11 +355,11 @@ jobs:
           AAPT2="$(find "$SDK_DIR/build-tools" -type f -name aapt2 | sort -V | tail -n1)"
 
           "$AAPT2" dump badging "$APK" | head -n 8
-          "$AAPT2" dump badging "$APK" | grep "package: name='com.termx'"
+          "$AAPT2" dump badging "$APK" | grep "package: name='com.termxx'"
           "$AAPT2" dump permissions "$APK" | grep "android.permission.ACCESS_LOCAL_NETWORK"
 
           mkdir -p ../upload
-          OUT="../upload/termux-localnet-com.termx-googleplay.2026.06.21-arm64-release.apk"
+          OUT="../upload/termux-localnet-com.termxx-googleplay.2026.06.21-arm64-release.apk"
           cp "$APK" "$OUT"
           sha256sum "$OUT" > "$OUT.sha256"
           ls -lh ../upload
@@ -367,7 +367,7 @@ jobs:
       - name: Upload parallel install APK
         uses: actions/upload-artifact@v7
         with:
-          name: termux-localnet-com.termx-googleplay.2026.06.21-arm64
+          name: termux-localnet-com.termxx-googleplay.2026.06.21-arm64
           path: upload/
           if-no-files-found: error
           retention-days: 30
