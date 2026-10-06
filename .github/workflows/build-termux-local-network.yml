@@ -116,9 +116,16 @@ jobs:
               text = text.replace(marker, replacement, 1)
               activity.write_text(text)
 
-          # 4) Android requires an APK signature even for adb install.
-          # Use the repository's bundled test key so no private CI secret is needed.
+          # 4) Fix the armeabi-v7a proot checksum in the 2026.06.21 release tag.
+          # Upstream main contains this same correction.
           text = gradle.read_text()
+          text = text.replace(
+              "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "09729047155df0c1a6b55c265ff4e272107775961d7efaff06bdd7cf37904050",
+          )
+
+          # 5) Android requires an APK signature even for adb install.
+          # Use the repository's bundled test key so no private CI secret is needed.
           signing_line = '            signingConfig = signingConfigs.getByName("debug")'
           if signing_line not in text:
               marker = '         getByName("release") {'
