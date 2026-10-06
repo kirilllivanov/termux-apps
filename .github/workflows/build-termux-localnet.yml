@@ -52,7 +52,10 @@ jobs:
           python3 <<'PY'
           from pathlib import Path
           from zipfile import ZipFile
+          from io import BytesIO
           import hashlib
+          import struct
+          import zlib
 
           old = b"com.termux"
           new = b"com.termxx"
@@ -62,14 +65,54 @@ jobs:
           dst = Path("termux-app/src/main/cpp/bootstrap-aarch64.zip")
           dst.parent.mkdir(parents=True, exist_ok=True)
 
+          def patch_dex(data: bytes):
+              if not data.startswith(b"dex\n"):
+                  return data, 0
+
+              count = data.count(old)
+              if not count:
+                  return data, 0
+
+              patched = bytearray(data.replace(old, new))
+
+              # DEX header: SHA-1 signature covers bytes [32:], then Adler32
+              # checksum covers bytes [12:] including the updated signature.
+              patched[12:32] = hashlib.sha1(patched[32:]).digest()
+              patched[8:12] = struct.pack("<I", zlib.adler32(patched[12:]) & 0xffffffff)
+              return bytes(patched), count
+
+          def patch_termux_am_apk(data: bytes):
+              source = BytesIO(data)
+              target = BytesIO()
+              dex_replacements = 0
+
+              with ZipFile(source, "r") as zin, ZipFile(target, "w") as zout:
+                  for inner_info in zin.infolist():
+                      inner_data = zin.read(inner_info.filename)
+                      if inner_info.filename.endswith(".dex"):
+                          inner_data, count = patch_dex(inner_data)
+                          dex_replacements += count
+                      zout.writestr(inner_info, inner_data)
+
+              if dex_replacements == 0:
+                  raise SystemExit("termux-am am.apk contained no patchable com.termux string in DEX")
+
+              return target.getvalue(), dex_replacements
+
           replaced = 0
+          termux_am_replaced = 0
           with ZipFile(src, "r") as zin, ZipFile(dst, "w") as zout:
               for info in zin.infolist():
                   data = zin.read(info.filename)
-                  count = data.count(old)
-                  if count:
-                      data = data.replace(old, new)
-                      replaced += count
+
+                  if info.filename.endswith("libexec/termux-am/am.apk"):
+                      data, count = patch_termux_am_apk(data)
+                      termux_am_replaced += count
+                  else:
+                      count = data.count(old)
+                      if count:
+                          data = data.replace(old, new)
+                          replaced += count
 
                   if "com.termux" in info.filename:
                       info.filename = info.filename.replace("com.termux", "com.termxx")
@@ -78,6 +121,8 @@ jobs:
 
           if replaced == 0:
               raise SystemExit("bootstrap contained no com.termux references to patch")
+          if termux_am_replaced == 0:
+              raise SystemExit("termux-am package id was not patched")
 
           # Verify file contents in the patched zip no longer contain the old package id.
           with ZipFile(dst, "r") as z:
@@ -100,6 +145,7 @@ jobs:
           proot_sha = hashlib.sha256(proot_dst.read_bytes()).hexdigest()
 
           print(f"bootstrap replacements: {replaced}")
+          print(f"termux-am dex replacements: {termux_am_replaced}")
           print(f"proot replacements: {proot_replaced}")
           print(f"bootstrap sha256: {bootstrap_sha}")
           print(f"proot sha256: {proot_sha}")
@@ -271,7 +317,19 @@ jobs:
               """,
                   1,
               )
-              activity.write_text(text)
+
+          # termux-tools broadcasts these package-scoped actions. They must
+          # match the renamed Android application id.
+          for old_action, new_action in {
+              '"com.termux.app.reload_style"': '"com.termxx.app.reload_style"',
+              '"com.termux.app.request_storage_permissions"': '"com.termxx.app.request_storage_permissions"',
+              '"com.termux.app.failsafe_session"': '"com.termxx.app.failsafe_session"',
+          }.items():
+              if old_action not in text:
+                  raise SystemExit(f"TermuxActivity action marker not found: {old_action}")
+              text = text.replace(old_action, new_action)
+
+          activity.write_text(text)
 
           # Provider/action literals that refer to the Android package rather than Java namespace.
           text = content_provider.read_text()
