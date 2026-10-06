@@ -180,6 +180,7 @@ jobs:
           constants = Path("termux-app/src/main/java/com/termux/app/TermuxConstants.java")
           permissions = Path("termux-app/src/main/java/com/termux/app/TermuxPermissionUtils.java")
           activity = Path("termux-app/src/main/java/com/termux/app/TermuxActivity.java")
+          installer = Path("termux-app/src/main/java/com/termux/app/TermuxInstaller.java")
           content_provider = Path("termux-app/src/main/java/com/termux/app/TermuxContentProvider.java")
           share_api = Path("termux-app/src/main/java/com/termux/app/api/ShareAPI.java")
           usb_api = Path("termux-app/src/main/java/com/termux/app/api/UsbAPI.java")
@@ -329,7 +330,157 @@ jobs:
                   raise SystemExit(f"TermuxActivity action marker not found: {old_action}")
               text = text.replace(old_action, new_action)
 
+          # Android 14+ may abort termux-am/app_process. Do not depend on
+          # termux-am for storage setup: request All files access from the app
+          # itself and create storage symlinks when the user returns.
+          if "import android.os.Environment;" not in text:
+              text = text.replace(
+                  "import android.os.Bundle;\n",
+                  "import android.os.Bundle;\nimport android.os.Environment;\n",
+                  1,
+              )
+          if "import android.provider.Settings;" not in text:
+              text = text.replace(
+                  "import android.os.IBinder;\n",
+                  "import android.os.IBinder;\nimport android.provider.Settings;\n",
+                  1,
+              )
+
+          field_marker = "    private boolean mIsVisible;\n"
+          storage_field = "    private boolean mStorageAccessRequestStarted;\n"
+          if storage_field not in text:
+              if field_marker not in text:
+                  raise SystemExit("mIsVisible field marker not found")
+              text = text.replace(field_marker, field_marker + storage_field, 1)
+
+          onresume_old = """    @Override
+              public void onResume() {
+                  super.onResume();
+                  mTermuxTerminalSessionActivityClient.onResume();
+                  if (!mPreferences.isFullscreen()) {
+                      mTerminalView.requestFocus();
+                  }
+                  applyFullscreenSetting(mPreferences.isFullscreen());
+              }
+          """
+          onresume_new = """    @Override
+              public void onResume() {
+                  super.onResume();
+
+                  // Keep the shell-side storage helper fixed even for users updating
+                  // this APK over an older com.termxx installation.
+                  TermuxInstaller.installStorageSetupWrapper();
+
+                  if (Build.VERSION.SDK_INT >= 30) {
+                      if (Environment.isExternalStorageManager()) {
+                          File sharedStorageLink = new File(TermuxConstants.HOME_PATH + "/storage/shared");
+                          if (!sharedStorageLink.exists()) {
+                              TermuxInstaller.setupStorageSymlinks(this);
+                          }
+                      } else if (!mStorageAccessRequestStarted) {
+                          mStorageAccessRequestStarted = true;
+                          try {
+                              Intent storageIntent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                              storageIntent.setData(Uri.parse("package:" + getPackageName()));
+                              startActivity(storageIntent);
+                          } catch (ActivityNotFoundException e) {
+                              startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                          }
+                      }
+                  }
+
+                  mTermuxTerminalSessionActivityClient.onResume();
+                  if (!mPreferences.isFullscreen()) {
+                      mTerminalView.requestFocus();
+                  }
+                  applyFullscreenSetting(mPreferences.isFullscreen());
+              }
+          """
+          if onresume_old not in text:
+              raise SystemExit("TermuxActivity onResume marker not found")
+          text = text.replace(onresume_old, onresume_new, 1)
           activity.write_text(text)
+
+          # Replace termux-setup-storage on every app resume with a helper that
+          # does not use termux-am at all. This also repairs existing installs
+          # updated with adb install -r.
+          text = installer.read_text()
+          if "import java.nio.charset.StandardCharsets;" not in text:
+              text = text.replace(
+                  "import java.nio.file.Files;\n",
+                  "import java.nio.charset.StandardCharsets;\nimport java.nio.file.Files;\n",
+                  1,
+              )
+
+          class_marker = """final class TermuxInstaller {
+
+              private static final String TERMUX_STAGING_PREFIX_DIR_PATH"""
+          wrapper_method = r'''
+              static void installStorageSetupWrapper() {
+                  File binDir = new File(TermuxConstants.BIN_PATH);
+                  if (!binDir.isDirectory()) return;
+
+                  File scriptFile = new File(binDir, "termux-setup-storage");
+                  String script = "#!" + TermuxConstants.BIN_PATH + "/bash\n"
+                      + "set -u\n"
+                      + "storage=\"$HOME/storage\"\n"
+                      + "if [ -d \"$storage\" ]; then\n"
+                      + "  echo\n"
+                      + "  echo \"It appears that directory '~/storage' already exists.\"\n"
+                      + "  echo \"This script will rebuild the standard storage symlinks.\"\n"
+                      + "  echo\n"
+                      + "fi\n"
+                      + "mkdir -p \"$storage\"\n"
+                      + "link_storage() {\n"
+                      + "  name=\"$1\"; target=\"$2\"\n"
+                      + "  path=\"$storage/$name\"\n"
+                      + "  if [ -L \"$path\" ]; then rm -f \"$path\"; fi\n"
+                      + "  if [ -e \"$path\" ]; then\n"
+                      + "    echo \"Not replacing existing $path\" >&2\n"
+                      + "    return\n"
+                      + "  fi\n"
+                      + "  ln -s \"$target\" \"$path\"\n"
+                      + "}\n"
+                      + "link_storage shared /storage/emulated/0\n"
+                      + "link_storage documents /storage/emulated/0/Documents\n"
+                      + "link_storage downloads /storage/emulated/0/Download\n"
+                      + "link_storage dcim /storage/emulated/0/DCIM\n"
+                      + "link_storage pictures /storage/emulated/0/Pictures\n"
+                      + "link_storage music /storage/emulated/0/Music\n"
+                      + "link_storage movies /storage/emulated/0/Movies\n"
+                      + "link_storage podcasts /storage/emulated/0/Podcasts\n"
+                      + "link_storage audiobooks /storage/emulated/0/Audiobooks\n"
+                      + "if ! ls /storage/emulated/0 >/dev/null 2>&1; then\n"
+                      + "  echo \"Storage links created, but All files access is not active.\" >&2\n"
+                      + "  echo \"Reopen Termux LocalNet and enable Manage all files access.\" >&2\n"
+                      + "  exit 2\n"
+                      + "fi\n"
+                      + "echo \"Storage links ready in ~/storage\"\n";
+
+                  try (FileOutputStream out = new FileOutputStream(scriptFile, false)) {
+                      out.write(script.getBytes(StandardCharsets.UTF_8));
+                      out.flush();
+                  } catch (IOException e) {
+                      Log.e(TermuxConstants.LOG_TAG, "Failed to install storage setup wrapper", e);
+                      return;
+                  }
+
+                  if (!scriptFile.setExecutable(true, true)) {
+                      Log.e(TermuxConstants.LOG_TAG, "Failed to make storage setup wrapper executable");
+                  }
+              }
+
+          '''
+          if "static void installStorageSetupWrapper()" not in text:
+              if class_marker not in text:
+                  raise SystemExit("TermuxInstaller class marker not found")
+              text = text.replace(
+                  class_marker,
+                  "final class TermuxInstaller {\n\n" + wrapper_method
+                  + "    private static final String TERMUX_STAGING_PREFIX_DIR_PATH",
+                  1,
+              )
+          installer.write_text(text)
 
           # Provider/action literals that refer to the Android package rather than Java namespace.
           text = content_provider.read_text()
@@ -372,7 +523,7 @@ jobs:
           ))
 
           for path in (
-              gradle, manifest, constants, permissions, activity,
+              gradle, manifest, constants, permissions, activity, installer,
               content_provider, share_api, usb_api, shortcuts, strings
           ):
               clean = "\n".join(line.rstrip() for line in path.read_text().splitlines()) + "\n"
