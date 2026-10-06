@@ -126,13 +126,15 @@ jobs:
 
           # 5) Android requires an APK signature even for adb install.
           # Use the repository's bundled test key so no private CI secret is needed.
-          signing_line = '            signingConfig = signingConfigs.getByName("debug")'
-          if signing_line not in text:
-              marker = '         getByName("release") {'
-              if marker not in text:
-                  raise SystemExit(f"Could not find release build type in {gradle}")
-              text = text.replace(marker, marker + '\n' + signing_line, 1)
-              gradle.write_text(text)
+          release_marker = '         getByName("release") {'
+          signed_release_marker = release_marker + '\n            signingConfig = signingConfigs.getByName("debug")'
+          if release_marker not in text:
+              raise SystemExit(f"Could not find release build type in {gradle}")
+          if signed_release_marker not in text:
+              text = text.replace(release_marker, signed_release_marker, 1)
+
+          # Always persist the checksum/signing changes.
+          gradle.write_text(text)
 
           # Keep generated edits clean so git diff --check catches real problems only.
           for path in (manifest, activity, permissions, gradle):
