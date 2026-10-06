@@ -51,20 +51,33 @@ jobs:
           text = text.replace(old, new, 1)
 
           p.write_text(text)
+
+          # The historical bootstrap script hardcodes /home/builder/termux-packages.
+          # Current package-builder images no longer expose our checkout there reliably,
+          # so use an explicit neutral bind mount at /src instead.
+          bootstrap = Path("scripts/build-bootstraps.sh")
+          btext = bootstrap.read_text()
+          old_dir = 'TERMUX_PACKAGES_DIRECTORY="/home/builder/termux-packages"'
+          if old_dir not in btext:
+              raise SystemExit("TERMUX_PACKAGES_DIRECTORY marker not found")
+          btext = btext.replace(old_dir, 'TERMUX_PACKAGES_DIRECTORY="/src"', 1)
+          bootstrap.write_text(btext)
           PY
 
           grep -E 'TERMUX_APP__PACKAGE_NAME|TERMUX_APP_PACKAGE=|TERMUX_APP__DATA_DIR|TERMUX__ROOTFS=|TERMUX__PREFIX=' scripts/properties.sh
+          grep 'TERMUX_PACKAGES_DIRECTORY=' scripts/build-bootstraps.sh | head
 
       - name: Build arm64 bootstrap for com.termux.localnet
         shell: bash
         run: |
           set -euo pipefail
+          test -x scripts/build-bootstraps.sh
           docker run --rm --privileged \
             -e CI=true \
-            -v "$PWD:/home/builder/termux-packages" \
-            -w /home/builder/termux-packages \
+            --mount "type=bind,src=$PWD,dst=/src" \
+            -w /src \
             ghcr.io/termux-play-store/package-builder:latest \
-            ./scripts/build-bootstraps.sh -f --architectures aarch64
+            /src/scripts/build-bootstraps.sh -f --architectures aarch64
 
       - name: Verify bootstrap
         shell: bash
