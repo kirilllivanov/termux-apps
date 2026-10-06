@@ -59,7 +59,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./scripts/run-docker.sh /home/builder/termux-packages/scripts/build-bootstraps.sh -f --architectures aarch64
+          docker run --rm --privileged \
+            -e CI=true \
+            -v "$PWD:/home/builder/termux-packages" \
+            -w /home/builder/termux-packages \
+            ghcr.io/termux-play-store/package-builder:latest \
+            ./scripts/build-bootstraps.sh -f --architectures aarch64
 
       - name: Verify bootstrap
         shell: bash
