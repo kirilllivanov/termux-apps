@@ -12,92 +12,15 @@ permissions:
   contents: read
 
 env:
-  APP_ID: com.termux.localnet
+  APP_ID: com.termx
   APP_TAG: termux-app-googleplay.2026.06.21
-  PACKAGES_TAG: bootstrap-2026.06.21-r2
+  BOOTSTRAP_TAG: bootstrap-2026.06.21-r2
+  PROOT_TAG: proot-2026.06.21-r1
+  PROOT_VERSION: 5.1.107.80-0
 
 jobs:
-  bootstrap:
-    name: Build custom arm64 bootstrap
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout matching Termux packages sources
-        uses: actions/checkout@v7
-        with:
-          repository: termux-play-store/termux-packages
-          ref: ${{ env.PACKAGES_TAG }}
-
-      - name: Configure custom Termux package name
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 <<'PY'
-          from pathlib import Path
-
-          p = Path("scripts/properties.sh")
-          text = p.read_text()
-
-          old = 'TERMUX_APP__PACKAGE_NAME="com.termux"'
-          new = 'TERMUX_APP__PACKAGE_NAME="com.termux.localnet"'
-          if old not in text:
-              raise SystemExit("TERMUX_APP__PACKAGE_NAME marker not found")
-          text = text.replace(old, new, 1)
-
-          old = 'TERMUX_REPO_APP__PACKAGE_NAME="com.termux"'
-          new = 'TERMUX_REPO_APP__PACKAGE_NAME="com.termux.localnet"'
-          if old not in text:
-              raise SystemExit("TERMUX_REPO_APP__PACKAGE_NAME marker not found")
-          text = text.replace(old, new, 1)
-
-          p.write_text(text)
-
-          # The historical bootstrap script hardcodes /home/builder/termux-packages.
-          # Current package-builder images no longer expose our checkout there reliably,
-          # so use an explicit neutral bind mount at /src instead.
-          bootstrap = Path("scripts/build-bootstraps.sh")
-          btext = bootstrap.read_text()
-          old_dir = 'TERMUX_PACKAGES_DIRECTORY="/home/builder/termux-packages"'
-          if old_dir not in btext:
-              raise SystemExit("TERMUX_PACKAGES_DIRECTORY marker not found")
-          btext = btext.replace(old_dir, 'TERMUX_PACKAGES_DIRECTORY="/src"', 1)
-          bootstrap.write_text(btext)
-          PY
-
-          grep -E 'TERMUX_APP__PACKAGE_NAME|TERMUX_APP_PACKAGE=|TERMUX_APP__DATA_DIR|TERMUX__ROOTFS=|TERMUX__PREFIX=' scripts/properties.sh
-          grep 'TERMUX_PACKAGES_DIRECTORY=' scripts/build-bootstraps.sh | head
-
-      - name: Build arm64 bootstrap for com.termux.localnet
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -x scripts/build-bootstraps.sh
-          docker run --rm --privileged \
-            -e CI=true \
-            --mount "type=bind,src=$PWD,dst=/src" \
-            -w /src \
-            ghcr.io/termux-play-store/package-builder:latest \
-            /src/scripts/build-bootstraps.sh -f --architectures aarch64
-
-      - name: Verify bootstrap
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -s bootstrap-aarch64.zip
-          sha256sum bootstrap-aarch64.zip
-          unzip -p bootstrap-aarch64.zip SYMLINKS.txt >/dev/null || true
-
-      - name: Upload custom bootstrap
-        uses: actions/upload-artifact@v7
-        with:
-          name: termux-localnet-bootstrap-aarch64
-          path: bootstrap-aarch64.zip
-          if-no-files-found: error
-          retention-days: 7
-
-  app:
-    name: Build parallel release APK
-    needs: bootstrap
+  build:
+    name: Build parallel arm64 release APK
     runs-on: ubuntu-latest
 
     steps:
@@ -107,53 +30,123 @@ jobs:
           set -euo pipefail
           git clone --depth 1 --branch "${APP_TAG}" https://github.com/termux-play-store/termux-apps.git source
 
-      - name: Download custom bootstrap
-        uses: actions/download-artifact@v8
-        with:
-          name: termux-localnet-bootstrap-aarch64
-          path: custom-bootstrap
-
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
 
-      - name: Patch app id, paths, manifest and Android 17 LAN permission
+      - name: Download and patch official arm64 prebuilts
+        id: prebuilts
         working-directory: source
         shell: bash
         run: |
           set -euo pipefail
-          cp ../custom-bootstrap/bootstrap-aarch64.zip termux-app/src/main/cpp/bootstrap-aarch64.zip
+
+          BOOTSTRAP_URL="https://github.com/termux-play-store/termux-packages/releases/download/${BOOTSTRAP_TAG}/bootstrap-aarch64.zip"
+          PROOT_URL="https://github.com/termux-play-store/termux-packages/releases/download/${PROOT_TAG}/libproot-loader-aarch64-${PROOT_VERSION}.so"
+
+          curl -fL --retry 3 "$BOOTSTRAP_URL" -o /tmp/bootstrap-aarch64-original.zip
+          curl -fL --retry 3 "$PROOT_URL" -o /tmp/libproot-loader-original.so
 
           python3 <<'PY'
           from pathlib import Path
+          from zipfile import ZipFile
           import hashlib
 
-          APP_ID = "com.termux.localnet"
+          old = b"com.termux"
+          new = b"com.termx"
+          assert len(old) == len(new)
 
+          src = Path("/tmp/bootstrap-aarch64-original.zip")
+          dst = Path("termux-app/src/main/cpp/bootstrap-aarch64.zip")
+          dst.parent.mkdir(parents=True, exist_ok=True)
+
+          replaced = 0
+          with ZipFile(src, "r") as zin, ZipFile(dst, "w") as zout:
+              for info in zin.infolist():
+                  data = zin.read(info.filename)
+                  count = data.count(old)
+                  if count:
+                      data = data.replace(old, new)
+                      replaced += count
+
+                  if "com.termux" in info.filename:
+                      info.filename = info.filename.replace("com.termux", "com.termx")
+
+                  zout.writestr(info, data)
+
+          if replaced == 0:
+              raise SystemExit("bootstrap contained no com.termux references to patch")
+
+          # Verify file contents in the patched zip no longer contain the old package id.
+          with ZipFile(dst, "r") as z:
+              leftovers = []
+              for info in z.infolist():
+                  if old in z.read(info.filename):
+                      leftovers.append(info.filename)
+              if leftovers:
+                  raise SystemExit(f"unpatched bootstrap entries: {leftovers[:10]}")
+
+          proot_src = Path("/tmp/libproot-loader-original.so")
+          proot_dst = Path("termux-app/src/main/jniLibs/arm64-v8a/libproot-loader.so")
+          proot_dst.parent.mkdir(parents=True, exist_ok=True)
+          pdata = proot_src.read_bytes()
+          proot_replaced = pdata.count(old)
+          pdata = pdata.replace(old, new)
+          proot_dst.write_bytes(pdata)
+
+          bootstrap_sha = hashlib.sha256(dst.read_bytes()).hexdigest()
+          proot_sha = hashlib.sha256(proot_dst.read_bytes()).hexdigest()
+
+          print(f"bootstrap replacements: {replaced}")
+          print(f"proot replacements: {proot_replaced}")
+          print(f"bootstrap sha256: {bootstrap_sha}")
+          print(f"proot sha256: {proot_sha}")
+
+          Path("/tmp/bootstrap.sha").write_text(bootstrap_sha)
+          Path("/tmp/proot.sha").write_text(proot_sha)
+          PY
+
+          echo "bootstrap_sha=$(cat /tmp/bootstrap.sha)" >> "$GITHUB_OUTPUT"
+          echo "proot_sha=$(cat /tmp/proot.sha)" >> "$GITHUB_OUTPUT"
+
+      - name: Patch application id and Android 17 LAN permission
+        working-directory: source
+        shell: bash
+        env:
+          BOOTSTRAP_SHA: ${{ steps.prebuilts.outputs.bootstrap_sha }}
+          PROOT_SHA: ${{ steps.prebuilts.outputs.proot_sha }}
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          APP_ID = "com.termx"
+          BOOTSTRAP_SHA = os.environ["BOOTSTRAP_SHA"]
+          PROOT_SHA = os.environ["PROOT_SHA"]
+
+          gradle = Path("termux-app/build.gradle.kts")
           manifest = Path("termux-app/src/main/AndroidManifest.xml")
-          activity = Path("termux-app/src/main/java/com/termux/app/TermuxActivity.java")
-          permissions = Path("termux-app/src/main/java/com/termux/app/TermuxPermissionUtils.java")
           constants = Path("termux-app/src/main/java/com/termux/app/TermuxConstants.java")
+          permissions = Path("termux-app/src/main/java/com/termux/app/TermuxPermissionUtils.java")
+          activity = Path("termux-app/src/main/java/com/termux/app/TermuxActivity.java")
           content_provider = Path("termux-app/src/main/java/com/termux/app/TermuxContentProvider.java")
           share_api = Path("termux-app/src/main/java/com/termux/app/api/ShareAPI.java")
+          usb_api = Path("termux-app/src/main/java/com/termux/app/api/UsbAPI.java")
           shortcuts = Path("termux-app/src/main/res/xml/shortcuts.xml")
           strings = Path("termux-app/src/main/res/values/strings.xml")
-          gradle = Path("termux-app/build.gradle.kts")
-          bootstrap = Path("termux-app/src/main/cpp/bootstrap-aarch64.zip")
 
-          # Android application id differs from Java namespace on purpose.
+          # Gradle: keep Java namespace com.termux, but use a different Android application id.
           text = gradle.read_text()
-          default_marker = "    defaultConfig {"
-          if 'applicationId = "com.termux.localnet"' not in text:
-              if default_marker not in text:
+          marker = "    defaultConfig {"
+          if 'applicationId = "com.termx"' not in text:
+              if marker not in text:
                   raise SystemExit("defaultConfig marker not found")
-              text = text.replace(
-                  default_marker,
-                  default_marker + '\n        applicationId = "com.termux.localnet"',
-                  1,
-              )
+              text = text.replace(marker, marker + '\n        applicationId = "com.termx"', 1)
 
           text = text.replace(
               'versionName = "googleplay.2026.06.21"',
@@ -166,60 +159,72 @@ jobs:
               1,
           )
 
-          # Use the custom bootstrap and keep only arm64 in this parallel build.
-          digest = hashlib.sha256(bootstrap.read_bytes()).hexdigest()
-          old_arches = '''        val arches = mapOf(
-                      "aarch64" to "0aaa4b890c4de28c1da01c2a12bfbf342009faf626e6b504aed303e6a936bebe",
-                      "arm" to "a0c3f9c0bb313ad5e371150a462bfe975c0108a444cf6f7f8c89173b9e9dc5f8",
-                      "x86_64" to "1799aef733532fe29eb913968302d681a9d22b5c38654b980330ceb0e182aa64"
-                  )'''
-          new_arches = f'''        val arches = mapOf(
-                      "aarch64" to "{digest}"
-                  )'''
-          if old_arches not in text:
-              raise SystemExit("bootstrap hash map marker not found")
-          text = text.replace(old_arches, new_arches, 1)
+          # Only package arm64 bootstrap in this test build.
+          text, n = re.subn(
+              r'''        val arches = mapOf\(
+          \s*"aarch64" to "[0-9a-f]{64}",
+          \s*"arm" to "[0-9a-f]{64}",
+          \s*"x86_64" to "[0-9a-f]{64}"
+          \s*\)''',
+              f'''        val arches = mapOf(
+                      "aarch64" to "{BOOTSTRAP_SHA}"
+                  )''',
+              text,
+              count=1,
+              flags=re.VERBOSE,
+          )
+          if n != 1:
+              raise SystemExit("bootstrap checksum map marker not found")
 
-          old_proot = '''        downloadFile(projectDir, "src/main/jniLibs/armeabi-v7a/libproot-loader.so", prootUrl.replace("ARCH", "arm"), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-                  downloadFile(projectDir, "src/main/jniLibs/arm64-v8a/libproot-loader.so", prootUrl.replace("ARCH", "aarch64"), "f7e3211e4c210c2a39a1f22b7f38666d99aee172fd009c0d19b84108cf20bb42")
-                  downloadFile(projectDir, "src/main/jniLibs/x86_64/libproot-loader.so", prootUrl.replace("ARCH", "x86_64"), "86e22d456255417e1d4ee874986571578ff26675ae2e372458e0d87f26454c63")'''
-          new_proot = '''        downloadFile(projectDir, "src/main/jniLibs/arm64-v8a/libproot-loader.so", prootUrl.replace("ARCH", "aarch64"), "f7e3211e4c210c2a39a1f22b7f38666d99aee172fd009c0d19b84108cf20bb42")'''
-          if old_proot not in text:
-              raise SystemExit("proot loader marker not found")
-          text = text.replace(old_proot, new_proot, 1)
+          # Only package the patched arm64 proot loader.
+          proot_block = re.compile(
+              r'''        downloadFile\(projectDir, "src/main/jniLibs/armeabi-v7a/libproot-loader\.so".*?\n
+          \s*downloadFile\(projectDir, "src/main/jniLibs/arm64-v8a/libproot-loader\.so".*?\n
+          \s*downloadFile\(projectDir, "src/main/jniLibs/x86_64/libproot-loader\.so".*?\n''',
+              re.VERBOSE,
+          )
+          replacement = (
+              '        downloadFile(projectDir, "src/main/jniLibs/arm64-v8a/libproot-loader.so", '
+              'prootUrl.replace("ARCH", "aarch64"), "' + PROOT_SHA + '")\n'
+          )
+          text, n = proot_block.subn(replacement, text, count=1)
+          if n != 1:
+              raise SystemExit("proot loader block marker not found")
 
-          # Sign release with repository test key so Android can install it.
+          # Release APK still needs a signature to be installable.
           release_marker = '         getByName("release") {'
-          signed_release_marker = release_marker + '\n            signingConfig = signingConfigs.getByName("debug")'
-          if signed_release_marker not in text:
+          signed_release = release_marker + '\n            signingConfig = signingConfigs.getByName("debug")'
+          if signed_release not in text:
               if release_marker not in text:
                   raise SystemExit("release build type marker not found")
-              text = text.replace(release_marker, signed_release_marker, 1)
+              text = text.replace(release_marker, signed_release, 1)
+
           gradle.write_text(text)
 
-          # Runtime filesystem paths must match the new Android application id.
+          # Runtime filesystem prefix must match the new package id.
           text = constants.read_text()
-          if 'public static final String PACKAGE_NAME = "com.termux";' not in text:
-              raise SystemExit("TermuxConstants package marker not found")
+          old = 'public static final String PACKAGE_NAME = "com.termux";'
+          if old not in text:
+              raise SystemExit("TermuxConstants PACKAGE_NAME marker not found")
           constants.write_text(text.replace(
-              'public static final String PACKAGE_NAME = "com.termux";',
-              'public static final String PACKAGE_NAME = "com.termux.localnet";',
+              old,
+              'public static final String PACKAGE_NAME = "com.termx";',
               1,
           ))
 
-          # Manifest identifiers that must be globally unique when both Termux apps are installed.
+          # Globally unique manifest names so official Termux can stay installed.
           text = manifest.read_text()
           replacements = {
-              "com.termux.permission.TERMUX_INTERNAL": "com.termux.localnet.permission.TERMUX_INTERNAL",
-              "com.termux.sharedfile.READ_WRITE": "com.termux.localnet.sharedfile.READ_WRITE",
-              'android:authorities="com.termux.documents"': 'android:authorities="com.termux.localnet.documents"',
-              'android:authorities="com.termux.files"': 'android:authorities="com.termux.localnet.files"',
-              'android:authorities="com.termux.sharedfile"': 'android:authorities="com.termux.localnet.sharedfile"',
-              'android:taskAffinity="com.termux.filereceiver"': 'android:taskAffinity="com.termux.localnet.filereceiver"',
+              "com.termux.permission.TERMUX_INTERNAL": "com.termx.permission.TERMUX_INTERNAL",
+              "com.termux.sharedfile.READ_WRITE": "com.termx.sharedfile.READ_WRITE",
+              'android:authorities="com.termux.documents"': 'android:authorities="com.termx.documents"',
+              'android:authorities="com.termux.files"': 'android:authorities="com.termx.files"',
+              'android:authorities="com.termux.sharedfile"': 'android:authorities="com.termx.sharedfile"',
+              'android:taskAffinity="com.termux.filereceiver"': 'android:taskAffinity="com.termx.filereceiver"',
           }
           for old, new in replacements.items():
               if old not in text:
-                  raise SystemExit(f"Manifest marker not found: {old}")
+                  raise SystemExit(f"manifest marker not found: {old}")
               text = text.replace(old, new)
 
           if "android.permission.ACCESS_LOCAL_NETWORK" not in text:
@@ -235,42 +240,7 @@ jobs:
               )
           manifest.write_text(text)
 
-          # Code-side content provider authorities.
-          text = content_provider.read_text()
-          if '"com.termux.files"' not in text:
-              raise SystemExit("TermuxContentProvider authority marker not found")
-          content_provider.write_text(text.replace(
-              '"com.termux.files"', '"com.termux.localnet.files"', 1
-          ))
-
-          text = share_api.read_text()
-          if '.authority("com.termux.sharedfile")' not in text:
-              raise SystemExit("ShareAPI authority marker not found")
-          share_api.write_text(text.replace(
-              '.authority("com.termux.sharedfile")',
-              '.authority("com.termux.localnet.sharedfile")',
-              1,
-          ))
-
-          # Launcher shortcuts need the new application id, but Java class stays in com.termux namespace.
-          text = shortcuts.read_text()
-          text = text.replace(
-              'android:targetPackage="com.termux"',
-              'android:targetPackage="com.termux.localnet"',
-          )
-          shortcuts.write_text(text)
-
-          # Distinguish the two apps in the launcher.
-          text = strings.read_text()
-          if '<string name="application_name">Termux</string>' not in text:
-              raise SystemExit("application_name marker not found")
-          strings.write_text(text.replace(
-              '<string name="application_name">Termux</string>',
-              '<string name="application_name">Termux LocalNet</string>',
-              1,
-          ))
-
-          # Android 17 runtime permission request.
+          # Runtime request for Android 17 local-network permission.
           text = permissions.read_text()
           if "REQUEST_ACCESS_LOCAL_NETWORK" not in text:
               marker = "    public static final int REQUEST_POST_NOTIFICATIONS = 2002;"
@@ -310,21 +280,61 @@ jobs:
               )
               activity.write_text(text)
 
-          # Normalize generated edits.
+          # Provider/action literals that refer to the Android package rather than Java namespace.
+          text = content_provider.read_text()
+          if '"com.termux.files"' not in text:
+              raise SystemExit("content provider authority marker not found")
+          content_provider.write_text(text.replace(
+              '"com.termux.files"', '"com.termx.files"', 1
+          ))
+
+          text = share_api.read_text()
+          if '.authority("com.termux.sharedfile")' not in text:
+              raise SystemExit("share provider authority marker not found")
+          share_api.write_text(text.replace(
+              '.authority("com.termux.sharedfile")',
+              '.authority("com.termx.sharedfile")',
+              1,
+          ))
+
+          text = usb_api.read_text()
+          text = text.replace(
+              '"com.termux.api.USB_PERMISSION"',
+              '"com.termx.api.USB_PERMISSION"',
+          )
+          usb_api.write_text(text)
+
+          text = shortcuts.read_text()
+          text = text.replace(
+              'android:targetPackage="com.termux"',
+              'android:targetPackage="com.termx"',
+          )
+          shortcuts.write_text(text)
+
+          text = strings.read_text()
+          if '<string name="application_name">Termux</string>' not in text:
+              raise SystemExit("application_name marker not found")
+          strings.write_text(text.replace(
+              '<string name="application_name">Termux</string>',
+              '<string name="application_name">Termux LocalNet</string>',
+              1,
+          ))
+
           for path in (
-              manifest, activity, permissions, constants, content_provider,
-              share_api, shortcuts, strings, gradle
+              gradle, manifest, constants, permissions, activity,
+              content_provider, share_api, usb_api, shortcuts, strings
           ):
               clean = "\n".join(line.rstrip() for line in path.read_text().splitlines()) + "\n"
               path.write_text(clean)
 
-          print("Custom bootstrap SHA-256:", digest)
           print("Application id:", APP_ID)
+          print("Bootstrap sha256:", BOOTSTRAP_SHA)
+          print("Proot sha256:", PROOT_SHA)
           PY
 
           git diff --check
           git diff --stat
-          grep -R 'com.termux.localnet'             termux-app/src/main/AndroidManifest.xml             termux-app/src/main/java/com/termux/app/TermuxConstants.java             termux-app/src/main/java/com/termux/app/TermuxContentProvider.java             termux-app/src/main/java/com/termux/app/api/ShareAPI.java             termux-app/src/main/res/xml/shortcuts.xml             termux-app/build.gradle.kts
+          grep -R 'com.termx'             termux-app/src/main/AndroidManifest.xml             termux-app/src/main/java/com/termux/app/TermuxConstants.java             termux-app/src/main/java/com/termux/app/TermuxContentProvider.java             termux-app/src/main/java/com/termux/app/api/ShareAPI.java             termux-app/src/main/res/xml/shortcuts.xml             termux-app/build.gradle.kts
 
       - name: Build release APK
         working-directory: source
@@ -333,7 +343,7 @@ jobs:
           set -euo pipefail
           ./gradlew :termux-app:assembleRelease
 
-      - name: Verify final application id and APK
+      - name: Verify APK
         working-directory: source
         shell: bash
         run: |
@@ -343,11 +353,13 @@ jobs:
 
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
           AAPT2="$(find "$SDK_DIR/build-tools" -type f -name aapt2 | sort -V | tail -n1)"
-          "$AAPT2" dump badging "$APK" | head -n 5
-          "$AAPT2" dump badging "$APK" | grep "package: name='com.termux.localnet'"
+
+          "$AAPT2" dump badging "$APK" | head -n 8
+          "$AAPT2" dump badging "$APK" | grep "package: name='com.termx'"
+          "$AAPT2" dump permissions "$APK" | grep "android.permission.ACCESS_LOCAL_NETWORK"
 
           mkdir -p ../upload
-          OUT="../upload/termux-localnet-googleplay.2026.06.21-arm64-release.apk"
+          OUT="../upload/termux-localnet-com.termx-googleplay.2026.06.21-arm64-release.apk"
           cp "$APK" "$OUT"
           sha256sum "$OUT" > "$OUT.sha256"
           ls -lh ../upload
@@ -355,7 +367,7 @@ jobs:
       - name: Upload parallel install APK
         uses: actions/upload-artifact@v7
         with:
-          name: termux-localnet-googleplay.2026.06.21-arm64
+          name: termux-localnet-com.termx-googleplay.2026.06.21-arm64
           path: upload/
           if-no-files-found: error
           retention-days: 30
