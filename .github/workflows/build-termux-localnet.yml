@@ -38,21 +38,22 @@ jobs:
           p = Path("scripts/properties.sh")
           text = p.read_text()
 
-          old = 'TERMUX_APP_PACKAGE="com.termux"'
-          new = 'TERMUX_APP_PACKAGE="com.termux.localnet"'
+          old = 'TERMUX_APP__PACKAGE_NAME="com.termux"'
+          new = 'TERMUX_APP__PACKAGE_NAME="com.termux.localnet"'
           if old not in text:
-              raise SystemExit("TERMUX_APP_PACKAGE marker not found")
+              raise SystemExit("TERMUX_APP__PACKAGE_NAME marker not found")
           text = text.replace(old, new, 1)
 
-          old = 'TERMUX_REPO_PACKAGE="com.termux"'
-          new = 'TERMUX_REPO_PACKAGE="com.termux.localnet"'
-          if old in text:
-              text = text.replace(old, new, 1)
+          old = 'TERMUX_REPO_APP__PACKAGE_NAME="com.termux"'
+          new = 'TERMUX_REPO_APP__PACKAGE_NAME="com.termux.localnet"'
+          if old not in text:
+              raise SystemExit("TERMUX_REPO_APP__PACKAGE_NAME marker not found")
+          text = text.replace(old, new, 1)
 
           p.write_text(text)
           PY
 
-          grep -E 'TERMUX_APP_PACKAGE|TERMUX_BASE_DIR|TERMUX_PREFIX=' scripts/properties.sh
+          grep -E 'TERMUX_APP__PACKAGE_NAME|TERMUX_APP_PACKAGE=|TERMUX_APP__DATA_DIR|TERMUX__ROOTFS=|TERMUX__PREFIX=' scripts/properties.sh
 
       - name: Build arm64 bootstrap for com.termux.localnet
         shell: bash
