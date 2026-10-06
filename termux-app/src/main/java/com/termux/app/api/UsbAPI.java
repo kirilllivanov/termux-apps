@@ -104,7 +104,7 @@ public class UsbAPI {
         Looper looper = Looper.myLooper();
         final boolean[] result = new boolean[1];
 
-        final String ACTION_USB_PERMISSION = "com.termux.api.USB_PERMISSION";
+        final String ACTION_USB_PERMISSION = "com.termxx.api.USB_PERMISSION";
         final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(final Context usbContext, final Intent usbIntent) {

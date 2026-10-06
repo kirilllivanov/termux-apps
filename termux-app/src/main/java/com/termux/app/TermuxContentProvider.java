@@ -23,7 +23,7 @@ import java.util.Locale;
  */
 public class TermuxContentProvider extends ContentProvider {
 
-    public static final String URI_AUTHORITY = "com.termux.files";
+    public static final String URI_AUTHORITY = "com.termxx.files";
     public static final String TERMUX_PATH_COLUMN_NAME = "termux_path";
 
     @Override

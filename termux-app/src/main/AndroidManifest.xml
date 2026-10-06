@@ -14,7 +14,7 @@
     -->
 
     <permission
-        android:name="com.termux.permission.TERMUX_INTERNAL"
+        android:name="com.termxx.permission.TERMUX_INTERNAL"
         android:label="@string/permission_termux_internal_label"
         android:description="@string/permission_termux_internal_description"
         android:icon="@mipmap/ic_launcher"
@@ -22,9 +22,10 @@
 
     <!-- This permission is not used, but a permission is needed on the sharedfile contentprovider,
          which will always use FLAG_GRANT_READ_URI_PERMISSION. -->
-    <permission android:name="com.termux.sharedfile.READ_WRITE" android:protectionLevel="signature" />
+    <permission android:name="com.termxx.sharedfile.READ_WRITE" android:protectionLevel="signature" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -35,7 +36,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="com.termux.permission.TERMUX_INTERNAL"/>
+    <uses-permission android:name="com.termxx.permission.TERMUX_INTERNAL"/>
 
     <!-- See https://developer.android.com/training/data-storage/manage-all-files -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="AllFilesAccessPolicy,ScopedStorage" />
@@ -84,7 +85,7 @@
             android:name=".app.TermuxActivityInternal"
             android:targetActivity=".app.TermuxActivity"
             android:exported="true"
-            android:permission="com.termux.permission.TERMUX_INTERNAL" />
+            android:permission="com.termxx.permission.TERMUX_INTERNAL" />
 
         <activity
             android:name=".app.TermuxFileReceiverActivity"
@@ -92,7 +93,7 @@
             android:exported="true"
             android:noHistory="true"
             android:resizeableActivity="true"
-            android:taskAffinity="com.termux.filereceiver" >
+            android:taskAffinity="com.termxx.filereceiver" >
             <!-- Accept multiple file types when sending. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -174,7 +175,7 @@
 
         <provider
             android:name=".app.TermuxDocumentsProvider"
-            android:authorities="com.termux.documents"
+            android:authorities="com.termxx.documents"
             android:exported="true"
             android:grantUriPermissions="true"
             android:permission="android.permission.MANAGE_DOCUMENTS">
@@ -185,15 +186,15 @@
 
         <provider
             android:name=".app.TermuxContentProvider"
-            android:authorities="com.termux.files"
+            android:authorities="com.termxx.files"
             android:exported="true"
             android:grantUriPermissions="true"
-            android:permission="com.termux.permission.TERMUX_INTERNAL" />
+            android:permission="com.termxx.permission.TERMUX_INTERNAL" />
 
         <provider
             android:name=".app.api.ShareAPI$ContentProvider"
-            android:authorities="com.termux.sharedfile"
-            android:permission="com.termux.sharedfile.READ_WRITE"
+            android:authorities="com.termxx.sharedfile"
+            android:permission="com.termxx.sharedfile.READ_WRITE"
             android:grantUriPermissions="true"
             android:exported="true" />
 
@@ -205,7 +206,7 @@
             android:name=".app.TermuxService"
             android:foregroundServiceType="specialUse"
             android:exported="true"
-            android:permission="com.termux.permission.TERMUX_INTERNAL">
+            android:permission="com.termxx.permission.TERMUX_INTERNAL">
             <!--
                 About android:foregroundServiceType: Starting with Android 14 foreground
                 services must define a service type. See:

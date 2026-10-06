@@ -1,0 +1,59 @@
+name: Build Termux LocalNet release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - googleplay-2026.06.21-localnet
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build arm64 release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :termux-app:assembleRelease
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find termux-app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
+          test -s "$APK"
+
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          AAPT2="$(find "$SDK_DIR/build-tools" -type f -name aapt2 | sort -V | tail -n1)"
+
+          "$AAPT2" dump badging "$APK" | grep "package: name='com.termxx'"
+          "$AAPT2" dump permissions "$APK" | grep "android.permission.ACCESS_LOCAL_NETWORK"
+          grep -q 'applicationId = "com.termxx"' termux-app/build.gradle.kts
+          grep -q 'com.termux.termuxam.Am' scripts/patch-localnet-bootstrap.py
+
+          mkdir -p upload
+          OUT="upload/termux-localnet-googleplay.2026.06.21-arm64-release.apk"
+          cp "$APK" "$OUT"
+          sha256sum "$OUT" > "$OUT.sha256"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: termux-localnet-googleplay.2026.06.21-arm64
+          path: upload/
+          if-no-files-found: error
+          retention-days: 30

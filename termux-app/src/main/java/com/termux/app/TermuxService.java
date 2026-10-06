@@ -46,17 +46,17 @@ import java.util.List;
  */
 public final class TermuxService extends Service {
 
-    public static final String ACTION_STOP_SERVICE = "com.termux.service.action.service_stop";
-    public static final String ACTION_SERVICE_EXECUTE = "com.termux.service.action.service_execute";
-    public static final String ACTION_WAKE_LOCK = "com.termux.service_wake_lock";
-    public static final String ACTION_WAKE_UNLOCK = "com.termux.service_wake_unlock";
+    public static final String ACTION_STOP_SERVICE = "com.termxx.service.action.service_stop";
+    public static final String ACTION_SERVICE_EXECUTE = "com.termxx.service.action.service_execute";
+    public static final String ACTION_WAKE_LOCK = "com.termxx.service_wake_lock";
+    public static final String ACTION_WAKE_UNLOCK = "com.termxx.service_wake_unlock";
 
-    public static final String TERMUX_EXECUTE_EXTRA_ARGUMENTS = "com.termux.execute.arguments";
-    public static final String TERMUX_EXECUTE_WORKDIR = "com.termux.execute.workdir";
-    public static final String TERMUX_EXECUTE_EXTRA_BACKGROUND = "com.termux.execute.background";
+    public static final String TERMUX_EXECUTE_EXTRA_ARGUMENTS = "com.termxx.execute.arguments";
+    public static final String TERMUX_EXECUTE_WORKDIR = "com.termxx.execute.workdir";
+    public static final String TERMUX_EXECUTE_EXTRA_BACKGROUND = "com.termxx.execute.background";
 
-    public static final String NOTIFICATION_CHANNEL_LOW_ID = "com.termux.service.notification_channel_low";
-    public static final String NOTIFICATION_CHANNEL_HIGH_ID = "com.termux.service.notification_channel_high";
+    public static final String NOTIFICATION_CHANNEL_LOW_ID = "com.termxx.service.notification_channel_low";
+    public static final String NOTIFICATION_CHANNEL_HIGH_ID = "com.termxx.service.notification_channel_high";
 
 
     /**

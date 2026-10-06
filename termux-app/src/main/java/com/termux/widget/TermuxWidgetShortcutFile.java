@@ -53,13 +53,13 @@ final class TermuxWidgetShortcutFile {
         var data = new Uri.Builder().scheme("path").path(mPath).build();
         if (mIsTask && !forceActivity) {
             return new Intent()
-                .setClassName("com.termux", "com.termux.app.TermuxService")
-                .setAction("com.termux.service.action.service_execute")
-                .putExtra("com.termux.execute.background", true)
+                .setClassName("com.termxx", "com.termux.app.TermuxService")
+                .setAction("com.termxx.service.action.service_execute")
+                .putExtra("com.termxx.execute.background", true)
                 .setData(data);
         } else {
             return new Intent()
-                .setClassName("com.termux", "com.termux.app.TermuxActivityInternal")
+                .setClassName("com.termxx", "com.termux.app.TermuxActivityInternal")
                 .setAction(Intent.ACTION_RUN)
                 .setData(data)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

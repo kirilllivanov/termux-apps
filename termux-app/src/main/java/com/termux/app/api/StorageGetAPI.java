@@ -14,7 +14,7 @@ import java.io.IOException;
 
 public class StorageGetAPI {
 
-    private static final String FILE_EXTRA = "com.termux.storage.file";
+    private static final String FILE_EXTRA = "com.termxx.storage.file";
 
     public static void onReceive(final Context context, final Intent intent) {
         ResultReturner.returnData(intent, out -> {

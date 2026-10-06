@@ -13,7 +13,9 @@ import android.content.ServiceConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.IBinder;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
@@ -66,9 +68,9 @@ import java.io.IOException;
  */
 public final class TermuxActivity extends AppCompatActivity implements ServiceConnection {
 
-    public static final String ACTION_RELOAD_STYLE = "com.termux.app.reload_style";
-    public static final String ACTION_REQUEST_PERMISSIONS = "com.termux.app.request_storage_permissions";
-    public static final String EXTRA_FAILSAFE_SESSION = "com.termux.app.failsafe_session";
+    public static final String ACTION_RELOAD_STYLE = "com.termxx.app.reload_style";
+    public static final String ACTION_REQUEST_PERMISSIONS = "com.termxx.app.request_storage_permissions";
+    public static final String EXTRA_FAILSAFE_SESSION = "com.termxx.app.failsafe_session";
 
     private static final int CONTEXT_MENU_SELECT_URL_ID = 0;
     private static final int CONTEXT_MENU_SHARE_TRANSCRIPT_ID = 1;
@@ -153,6 +155,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
      * time, so if the session causing a change is not in the foreground it should probably be treated as background.
      */
     private boolean mIsVisible;
+    private boolean mStorageAccessRequestStarted;
 
     private float mTerminalToolbarDefaultHeight;
 
@@ -326,11 +329,39 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 Manifest.permission.POST_NOTIFICATIONS
             );
         }
+
+        if (Build.VERSION.SDK_INT >= 37) {
+            TermuxPermissionUtils.requestPermissions(this,
+                TermuxPermissionUtils.REQUEST_ACCESS_LOCAL_NETWORK,
+                TermuxPermissionUtils.PERMISSION_ACCESS_LOCAL_NETWORK
+            );
+        }
     }
 
     @Override
     public void onResume() {
         super.onResume();
+
+        TermuxInstaller.installStorageSetupWrapper();
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            if (Environment.isExternalStorageManager()) {
+                File sharedStorageLink = new File(TermuxConstants.HOME_PATH + "/storage/shared");
+                if (!sharedStorageLink.exists()) {
+                    TermuxInstaller.setupStorageSymlinks(this);
+                }
+            } else if (!mStorageAccessRequestStarted) {
+                mStorageAccessRequestStarted = true;
+                try {
+                    Intent storageIntent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                    storageIntent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(storageIntent);
+                } catch (ActivityNotFoundException e) {
+                    startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                }
+            }
+        }
+
         mTermuxTerminalSessionActivityClient.onResume();
         if (!mPreferences.isFullscreen()) {
             mTerminalView.requestFocus();

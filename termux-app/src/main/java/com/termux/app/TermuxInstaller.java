@@ -24,6 +24,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
@@ -50,6 +51,56 @@ import java.util.zip.ZipInputStream;
  * (5.2) For every other zip entry, extract it into $STAGING_PREFIX and set execute permissions if necessary.
  */
 final class TermuxInstaller {
+
+    static void installStorageSetupWrapper() {
+        File binDir = new File(TermuxConstants.BIN_PATH);
+        if (!binDir.isDirectory()) return;
+
+        File scriptFile = new File(binDir, "termux-setup-storage");
+        String script = "#!" + TermuxConstants.BIN_PATH + "/bash\n"
+            + "set -u\n"
+            + "storage=\"$HOME/storage\"\n"
+            + "mkdir -p \"$storage\"\n"
+            + "link_storage() {\n"
+            + "  name=\"$1\"; target=\"$2\"\n"
+            + "  path=\"$storage/$name\"\n"
+            + "  if [ -L \"$path\" ]; then rm -f \"$path\"; fi\n"
+            + "  if [ -e \"$path\" ]; then\n"
+            + "    echo \"Not replacing existing $path\" >&2\n"
+            + "    return\n"
+            + "  fi\n"
+            + "  ln -s \"$target\" \"$path\"\n"
+            + "}\n"
+            + "link_storage shared /storage/emulated/0\n"
+            + "link_storage documents /storage/emulated/0/Documents\n"
+            + "link_storage downloads /storage/emulated/0/Download\n"
+            + "link_storage dcim /storage/emulated/0/DCIM\n"
+            + "link_storage pictures /storage/emulated/0/Pictures\n"
+            + "link_storage music /storage/emulated/0/Music\n"
+            + "link_storage movies /storage/emulated/0/Movies\n"
+            + "link_storage podcasts /storage/emulated/0/Podcasts\n"
+            + "link_storage audiobooks /storage/emulated/0/Audiobooks\n"
+            + "link_storage external-0 /storage/emulated/0/Android/data/com.termxx/files\n"
+            + "link_storage media-0 /storage/emulated/0/Android/media/com.termxx\n"
+            + "if ! ls /storage/emulated/0 >/dev/null 2>&1; then\n"
+            + "  echo \"Storage links created, but All files access is not active.\" >&2\n"
+            + "  echo \"Reopen Termux LocalNet and enable Manage all files access.\" >&2\n"
+            + "  exit 2\n"
+            + "fi\n"
+            + "echo \"Storage links ready in ~/storage\"\n";
+
+        try (FileOutputStream out = new FileOutputStream(scriptFile, false)) {
+            out.write(script.getBytes(StandardCharsets.UTF_8));
+            out.flush();
+        } catch (IOException e) {
+            Log.e(TermuxConstants.LOG_TAG, "Failed to install storage setup wrapper", e);
+            return;
+        }
+
+        if (!scriptFile.setExecutable(true, true)) {
+            Log.e(TermuxConstants.LOG_TAG, "Failed to make storage setup wrapper executable");
+        }
+    }
 
     private static final String TERMUX_STAGING_PREFIX_DIR_PATH = TermuxConstants.FILES_PATH + "/usr-staging"; // Default: "/data/data/com.termux/files/usr-staging"
 
@@ -80,6 +131,7 @@ final class TermuxInstaller {
 
         // If prefix directory exists, even if its a symlink to a valid directory and symlink is not broken/dangling
         if (new File(TermuxConstants.PREFIX_PATH).exists()) {
+            installStorageSetupWrapper();
             whenDone.run();
             return;
         }
@@ -161,6 +213,7 @@ final class TermuxInstaller {
                 }
 
                 Os.rename(TERMUX_STAGING_PREFIX_DIR_PATH, TermuxConstants.PREFIX_PATH);
+                installStorageSetupWrapper();
 
                 activity.runOnUiThread(whenDone);
             } catch (final Exception e) {

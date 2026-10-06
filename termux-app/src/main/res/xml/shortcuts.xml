@@ -17,7 +17,7 @@
         android:shortcutShortLabel="@string/action_new_session">
         <intent
             android:action="android.intent.action.RUN"
-            android:targetPackage="com.termux"
+            android:targetPackage="com.termxx"
             android:targetClass="com.termux.app.TermuxActivity"
             android:name="android.shortcut.conversation"/>
     </shortcut>
@@ -29,10 +29,10 @@
         android:shortcutShortLabel="@string/action_new_session_failsafe">
         <intent
             android:action="android.intent.action.RUN"
-            android:targetPackage="com.termux"
+            android:targetPackage="com.termxx"
             android:targetClass="com.termux.app.TermuxActivity"
             android:name="android.shortcut.conversation">
-            <extra android:name="com.termux.app.failsafe_session" android:value="true"/>
+            <extra android:name="com.termxx.app.failsafe_session" android:value="true"/>
         </intent>
     </shortcut>
 

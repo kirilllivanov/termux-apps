@@ -6,7 +6,7 @@ public class TermuxConstants {
 
     public static final String LOG_TAG = "termux";
 
-    public static final String PACKAGE_NAME = "com.termux";
+    public static final String PACKAGE_NAME = "com.termxx";
 
     @SuppressLint("SdCardPath")
     public static final String FILES_PATH = "/data/data/" + PACKAGE_NAME + "/files";
