@@ -343,6 +343,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         super.onResume();
 
         TermuxInstaller.installStorageSetupWrapper();
+        TermuxNginxCompatibility.repairInBackground();
 
         if (Build.VERSION.SDK_INT >= 30) {
             if (Environment.isExternalStorageManager()) {
